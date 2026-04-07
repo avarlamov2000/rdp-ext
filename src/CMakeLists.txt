@@ -1,0 +1,5 @@
+add_subdirectory("core")
+add_subdirectory("logic")
+add_subdirectory("runtime")
+add_subdirectory("transport")
+add_subdirectory("apps")

@@ -1,0 +1,5 @@
+add_subdirectory(protocol)
+add_subdirectory(logic)
+add_subdirectory(telemetry)
+add_subdirectory(transport)
+add_subdirectory(runtime)

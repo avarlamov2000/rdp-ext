@@ -1,0 +1,6 @@
+#ifndef RDP_EXT_DEFAULTS_H
+#define RDP_EXT_DEFAULTS_H
+
+constexpr auto DEFAULT_CHANNEL_NAME = "RDPEXT";
+
+#endif //RDP_EXT_DEFAULTS_H

@@ -1,0 +1,7 @@
+if(UNIX)
+    add_subdirectory(freerdp_plugin)
+    add_subdirectory(xrdp_server)
+elseif (WIN32)
+    add_subdirectory(mstsc_plugin)
+    add_subdirectory(wts_server)
+endif()
