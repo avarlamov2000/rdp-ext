@@ -205,7 +205,7 @@ bool WtsTransport::readOnce() {
     CloseHandle(ov.hEvent);
 #else
     const int rv = WTSVirtualChannelRead(
-        channel,
+        channel_.channel(),
         READ_TIMEOUT_MS,
         buffer,
         sizeof(buffer),

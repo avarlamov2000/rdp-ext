@@ -1,5 +1,7 @@
 #include "wts_channel_handle.h"
 
+#include <utility>
+
 namespace rdp_ext::transport {
 
 WtsChannelHandle::WtsChannelHandle(HANDLE channel_handle, HANDLE file_handle)

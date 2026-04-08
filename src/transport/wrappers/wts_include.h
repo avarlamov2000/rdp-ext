@@ -7,6 +7,7 @@
 #include <wtsapi32.h>
 #else
 #include <freerdp/api.h>
+#include <winpr/file.h>
 #include <xrdpapi.h>
 #endif
 

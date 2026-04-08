@@ -224,6 +224,8 @@ BOOL MstscTransport::virtualChannelEntryEx(PCHANNEL_ENTRY_POINTS_FREERDP_EX entr
         VIRTUAL_CHANNEL_VERSION_WIN2000,
         &MstscTransport::InitEventThunkEx);
 
+    registerInitHandle(init_handle_);
+
     return (rc == CHANNEL_RC_OK) ? TRUE : FALSE;
 }
 
@@ -240,6 +242,8 @@ void MstscTransport::onInitEventEx(LPVOID userParam, LPVOID initHandle, UINT eve
                 logger_.error("pVirtualChannelOpen failed");
                 return;
             }
+
+            registerOpenHandle(open_handle_);
 
             if (connected_handler_) {
                 connected_handler_();
@@ -292,17 +296,17 @@ void MstscTransport::onOpenEventEx(DWORD openHandle, UINT event, LPVOID data, UI
     }
 }
 
-VOID VCAPITYPE MstscTransport::InitEventThunkEx(LPVOID userParam, LPVOID initHandle, UINT event, LPVOID data, UINT dataLength) {
-    auto* self = g_runtime;
+VOID VCAPITYPE MstscTransport::InitEventThunkEx(LPVOID user_param, LPVOID init_handle, UINT event, LPVOID data, UINT data_length) {
+    auto* self = findByInitHandle(init_handle);
     if (self != nullptr) {
-        self->onInitEventEx(userParam, initHandle, event, data, dataLength);
+        self->onInitEventEx(user_param, init_handle, event, data, data_length);
     }
 }
 
-VOID VCAPITYPE MstscTransport::OpenEventThunkEx(LPVOID userParam, DWORD openHandle, UINT event, LPVOID data, UINT32 dataLength, UINT32 totalLength, UINT32 dataFlags) {
-    auto* self = g_runtime;
+VOID VCAPITYPE MstscTransport::OpenEventThunkEx(LPVOID user_param, DWORD open_handle, UINT event, LPVOID data, UINT32 data_length, UINT32 total_length, UINT32 data_flags) {
+    auto* self = findByOpenHandle(open_handle);
     if (self != nullptr) {
-        self->onOpenEventEx(openHandle, event, data, dataLength, totalLength, dataFlags);
+        self->onOpenEventEx(open_handle, event, data, data_length, total_length, data_flags);
     }
 }
 #endif

@@ -58,8 +58,8 @@ private:
     static VOID VCAPITYPE OpenEventThunk(DWORD open_handle, UINT event, LPVOID data, UINT32 data_length, UINT32 total_length, UINT32 data_flags);
 
 #ifndef _WIN32
-    static VOID VCAPITYPE InitEventThunkEx(LPVOID userParam, LPVOID initHandle, UINT event, LPVOID data, UINT dataLength);
-    static VOID VCAPITYPE OpenEventThunkEx(LPVOID userParam, DWORD openHandle, UINT event, LPVOID data, UINT32 dataLength, UINT32 totalLength, UINT32 dataFlags);
+    static VOID VCAPITYPE InitEventThunkEx(LPVOID user_param, LPVOID init_handle, UINT event, LPVOID data, UINT data_length);
+    static VOID VCAPITYPE OpenEventThunkEx(LPVOID user_param, DWORD open_handle, UINT event, LPVOID data, UINT32 data_length, UINT32 total_length, UINT32 data_flags);
 #endif
 
     CHANNEL_ENTRY_POINTS entry_points_{};
