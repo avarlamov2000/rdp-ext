@@ -4,12 +4,12 @@
 #include "serializer.h"
 #include "logger.h"
 #include "transport_handlers.h"
+#include "wrappers/wts_channel_handle.h"
 
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
 #include <string>
-#include <thread>
 
 // TODO: Отрефакторить, добавить корректное обращение с ресурсами и убрать дублирующийся код
 namespace rdp_ext::transport {
@@ -25,17 +25,22 @@ namespace rdp_ext::transport {
         void setDisconnectedHandler(DisconnectedHandler handler);
         void setBytesHandler(BytesHandler handler);
 
-        void workerLoop();
+        void run();
+        void stop();
 
     private:
         enum class WorkerState : std::uint8_t {
             Stopped = 0,
             Opening,
-            Connected
+            Connected,
+            Disconnected,
         };
 
+        void start();
+        void workerLoop();
+
         bool tryOpenChannel();
-        void closeChannelNoLock();
+        void closeChannel();
         bool readOnce();
 
         bool queryFileHandleNoLock();
@@ -47,14 +52,9 @@ namespace rdp_ext::transport {
         std::string channel_name_;
 
         std::atomic_bool running_{false};
-        std::thread worker_thread_;
-
         mutable std::mutex mutex_;
-        void* channel_{nullptr};
+        WtsChannelHandle channel_;
         WorkerState state_{WorkerState::Stopped};
-        void* file_handle_;
-
-        std::mutex write_mutex_;
 
         logging::Logger logger_;
     };

@@ -9,21 +9,26 @@ MstscRuntime::MstscRuntime(std::string_view channel_name, logging::LogSink& log_
     , controller_{transport_, executor_, log_sink_}
 {}
 
+MstscRuntime::~MstscRuntime() {
+    stop();
+}
+
 BOOL MstscRuntime::virtualChannelEntry(PCHANNEL_ENTRY_POINTS entryPoints) {
-    run();
+    start();
     return transport_.virtualChannelEntry(entryPoints);
 }
 
-void MstscRuntime::run() {
-    // TODO: Переделать!!!
-    std::thread{ [this]() {
-        executor_.run();
-    }}.detach();
+void MstscRuntime::start() {
+    executor_.start();
+}
+
+void MstscRuntime::stop() {
+    executor_.stop();
 }
 
 #ifndef _WIN32
 BOOL MstscRuntime::virtualChannelEntryEx(PCHANNEL_ENTRY_POINTS_FREERDP_EX entryPoints, PVOID initHandle) {
-    run();
+    start();
     return transport_.virtualChannelEntryEx(entryPoints, initHandle);
 }
 #endif

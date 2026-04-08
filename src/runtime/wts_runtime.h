@@ -16,9 +16,18 @@ class WtsRuntime {
 public:
     explicit WtsRuntime(std::string_view channel_name, logging::LogSink& log_sink);
 
+    ~WtsRuntime();
+    WtsRuntime(const WtsRuntime&) = delete;
+    WtsRuntime& operator=(const WtsRuntime&) = delete;
+    WtsRuntime(WtsRuntime&&) = delete;
+    WtsRuntime& operator=(WtsRuntime&&) noexcept = delete;
+
     void run();
 
 private:
+    void start();
+    void stop();
+
     logging::LogSink& log_sink_;
     transport::WtsTransport transport_;
     Executor executor_;

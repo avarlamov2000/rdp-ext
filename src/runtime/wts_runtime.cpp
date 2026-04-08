@@ -10,12 +10,23 @@ WtsRuntime::WtsRuntime(std::string_view channel_name, logging::LogSink& log_sink
     , controller_{transport_, telemetry_, executor_, log_sink_}
 {}
 
+WtsRuntime::~WtsRuntime() {
+    stop();
+}
+
 void WtsRuntime::run() {
-    // TODO: Переделать!!!
-    std::thread{ [this]() {
-        transport_.workerLoop();
-    }}.detach();
-    executor_.run();
+    start();
+    transport_.run();
+    stop();
+}
+
+void WtsRuntime::start() {
+    executor_.start();
+}
+
+void WtsRuntime::stop() {
+    transport_.stop();
+    executor_.stop();
 }
 
 } // namespace rdp_ext::runtime

@@ -5,15 +5,14 @@
 
 namespace rdp_ext::transport {
 namespace {
-    MstscTransport* g_runtime = nullptr;
+    std::mutex g_instances_mutex;
+    std::unordered_map<LPVOID, MstscTransport*> g_init_instances;
+    std::unordered_map<DWORD, MstscTransport*> g_open_instances;
 }
 
 MstscTransport::MstscTransport(std::string_view channel_name, logging::LogSink& log_sink)
     : channel_name_{channel_name}, logger_{log_sink, "mstsc-transport"}
-{
-    // TODO: Переделать!!!
-    g_runtime = this;
-}
+{}
 
 
 #ifdef _WIN32
@@ -67,16 +66,38 @@ void MstscTransport::setBytesHandler(BytesHandler handler) {
     bytes_handler_ = std::move(handler);
 }
 
-BOOL MstscTransport::virtualChannelEntry(PCHANNEL_ENTRY_POINTS entryPoints) {
-    if (entryPoints == nullptr) {
+void MstscTransport::registerInitHandle(LPVOID init_handle) {
+    std::lock_guard lock(g_instances_mutex);
+    g_init_instances[init_handle] = this;
+}
+
+void MstscTransport::registerOpenHandle(DWORD open_handle) {
+    std::lock_guard lock(g_instances_mutex);
+    g_open_instances[open_handle] = this;
+}
+
+MstscTransport* MstscTransport::findByInitHandle(LPVOID init_handle) {
+    std::lock_guard lock(g_instances_mutex);
+    const auto it = g_init_instances.find(init_handle);
+    return it != g_init_instances.end() ? it->second : nullptr;
+}
+
+MstscTransport* MstscTransport::findByOpenHandle(DWORD open_handle) {
+    std::lock_guard lock(g_instances_mutex);
+    const auto it = g_open_instances.find(open_handle);
+    return it != g_open_instances.end() ? it->second : nullptr;
+}
+
+BOOL MstscTransport::virtualChannelEntry(PCHANNEL_ENTRY_POINTS entry_points) {
+    if (entry_points == nullptr) {
         return FALSE;
     }
 
-    if (entryPoints->cbSize < sizeof(CHANNEL_ENTRY_POINTS)) {
+    if (entry_points->cbSize < sizeof(CHANNEL_ENTRY_POINTS)) {
         return FALSE;
     }
 
-    entry_points_ = *entryPoints;
+    entry_points_ = *entry_points;
 
     CHANNEL_DEF channelDef{};
     std::strncpy(channelDef.name, channel_name_.c_str(), sizeof(channelDef.name) - 1);
@@ -89,28 +110,30 @@ BOOL MstscTransport::virtualChannelEntry(PCHANNEL_ENTRY_POINTS entryPoints) {
         VIRTUAL_CHANNEL_VERSION_WIN2000,
         &MstscTransport::InitEventThunk);
 
+    registerInitHandle(init_handle_);
+
     return (rc == CHANNEL_RC_OK) ? TRUE : FALSE;
 }
 
-VOID VCAPITYPE MstscTransport::InitEventThunk(LPVOID initHandle, UINT event, LPVOID data, UINT dataLength) {
-    auto* self = g_runtime;
+VOID VCAPITYPE MstscTransport::InitEventThunk(LPVOID init_handle, UINT event, LPVOID data, UINT data_length) {
+    auto* self = findByInitHandle(init_handle);
+    if (self == nullptr)
+        return;
+    self->onInitEvent(nullptr, init_handle, event, data, data_length);
+}
+
+VOID VCAPITYPE MstscTransport::OpenEventThunk(DWORD open_handle, UINT event, LPVOID data, UINT32 data_length, UINT32 total_length, UINT32 data_flags) {
+    auto* self = findByOpenHandle(open_handle);
     if (self != nullptr) {
-        self->onInitEvent(nullptr, initHandle, event, data, dataLength);
+        self->onOpenEvent(open_handle, event, data, data_length, total_length, data_flags);
     }
 }
 
-VOID VCAPITYPE MstscTransport::OpenEventThunk(DWORD openHandle, UINT event, LPVOID data, UINT32 dataLength, UINT32 totalLength, UINT32 dataFlags) {
-    auto* self = g_runtime;
-    if (self != nullptr) {
-        self->onOpenEvent(openHandle, event, data, dataLength, totalLength, dataFlags);
-    }
-}
-
-void MstscTransport::onInitEvent(LPVOID userParam, LPVOID initHandle, UINT event, LPVOID data, UINT dataLength) {
+void MstscTransport::onInitEvent(LPVOID user_param, LPVOID init_handle, UINT event, LPVOID data, UINT data_length) {
     switch (event) {
     case CHANNEL_EVENT_CONNECTED: {
         const UINT rc = entry_points_.pVirtualChannelOpen(
-            initHandle,
+            init_handle,
             &open_handle_,
             const_cast<PCHAR>(channel_name_.c_str()),
             &MstscTransport::OpenEventThunk);
@@ -119,6 +142,8 @@ void MstscTransport::onInitEvent(LPVOID userParam, LPVOID initHandle, UINT event
             logger_.error(std::format("pVirtualChannelOpen failed, GetLastError={}", GetLastError()));
             return;
         }
+
+        registerOpenHandle(open_handle_);
 
         if (connected_handler_) {
             connected_handler_();
@@ -140,16 +165,16 @@ void MstscTransport::onInitEvent(LPVOID userParam, LPVOID initHandle, UINT event
     }
 }
 
-void MstscTransport::onOpenEvent(DWORD openHandle, UINT event, LPVOID data, UINT32 dataLength, UINT32 totalLength, UINT32 dataFlags) {
+void MstscTransport::onOpenEvent(DWORD open_handle, UINT event, LPVOID data, UINT32 data_length, UINT32 total_length, UINT32 data_flags) {
     switch (event) {
         case CHANNEL_EVENT_DATA_RECEIVED: {
             std::lock_guard lock(receive_mutex_);
 
             const auto* input = static_cast<const std::byte*>(data);
             protocol::Buffer buffer;
-            buffer.insert(buffer.end(), input, input + dataLength);
+            buffer.insert(buffer.end(), input, input + data_length);
 
-            if ((dataFlags & CHANNEL_FLAG_LAST) != 0U) {
+            if ((data_flags & CHANNEL_FLAG_LAST) != 0U) {
                 if (bytes_handler_) {
                     bytes_handler_(std::move(buffer));
                 }

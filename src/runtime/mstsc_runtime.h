@@ -13,12 +13,19 @@ class MstscRuntime {
 public:
     explicit MstscRuntime(std::string_view channel_name, logging::LogSink& log_sink);
 
+    ~MstscRuntime();
+    MstscRuntime(const MstscRuntime&) = delete;
+    MstscRuntime& operator=(const MstscRuntime&) = delete;
+    MstscRuntime(MstscRuntime&&) = delete;
+    MstscRuntime& operator=(MstscRuntime&&) noexcept = delete;
+
     BOOL virtualChannelEntry(PCHANNEL_ENTRY_POINTS entryPoints);
 #ifndef _WIN32
     BOOL virtualChannelEntryEx(PCHANNEL_ENTRY_POINTS_FREERDP_EX entryPoints, PVOID initHandle);
 #endif
 
-    void run();
+    void start();
+    void stop();
 
 private:
     logging::LogSink& log_sink_;

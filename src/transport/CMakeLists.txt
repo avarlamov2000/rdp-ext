@@ -3,6 +3,8 @@ add_library(rdp_ext_transport STATIC
         wts_transport.cpp
 )
 
+add_subdirectory(wrappers)
+
 target_include_directories(rdp_ext_transport
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}

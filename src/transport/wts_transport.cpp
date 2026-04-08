@@ -1,18 +1,8 @@
 #include "wts_transport.h"
 
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#include <wtsapi32.h>
-#else
-#include <freerdp/api.h>
-#include <xrdpapi.h>
-#endif
-
 #include <chrono>
 #include <thread>
 #include <iostream>
-
 
 namespace rdp_ext::transport {
 
@@ -28,40 +18,34 @@ WtsTransport::WtsTransport(std::string_view channel_name, logging::LogSink& log_
 {}
 
 void WtsTransport::send(protocol::Buffer&& bytes) {
-    std::lock_guard writeLock(write_mutex_);
-    std::lock_guard stateLock(mutex_);
+    {
+        std::lock_guard stateLock(mutex_);
 
-    if (channel_ == nullptr) {
-        logger_.error("Send requested, but wts channel is not open");
-        return;
+         if (!running_.load(std::memory_order_acquire)) {
+             return;
+         }
+
+         if (!channel_.valid()) {
+             logger_.error("Send requested, but wts channel is not open");
+             return;
+         }
     }
 
+    // TODO: Защитить этот блок
     ULONG bytesWritten = 0;
     const int rv = WTSVirtualChannelWrite(
-        channel_,
+        channel_.channel(),
         reinterpret_cast<char*>(bytes.data()),
         static_cast<int>(bytes.size()),
         &bytesWritten);
 
     if (rv == 0) {
-        close();
+        closeChannel();
     }
 }
 
 void WtsTransport::close() {
-    bool wasConnected = false;
-    {
-        std::lock_guard lock(mutex_);
-        wasConnected = (state_ == WorkerState::Connected);
-        closeChannelNoLock();
-        state_ = WorkerState::Opening;
-    }
-
-    if (wasConnected) {
-        if (disconnected_handler_) {
-            disconnected_handler_();
-        }
-    }
+    closeChannel();
 }
 
 void WtsTransport::setConnectedHandler(ConnectedHandler handler) {
@@ -76,75 +60,106 @@ void WtsTransport::setBytesHandler(BytesHandler handler) {
     bytes_handler_ = std::move(handler);
 }
 
-void WtsTransport::workerLoop() {
+void WtsTransport::run() {
     running_.store(true, std::memory_order_release);
     while (running_.load(std::memory_order_acquire)) {
-        {
-            std::lock_guard lock(mutex_);
-            if (state_ != WorkerState::Connected) {
-                state_ = WorkerState::Opening;
-            }
-        }
-
         if (!tryOpenChannel()) {
+            if (!running_.load(std::memory_order_acquire)) {
+                break;
+            }
+
             std::this_thread::sleep_for(std::chrono::milliseconds(OPEN_RETRY_MS));
             continue;
         }
 
-        if (connected_handler_) {
-            connected_handler_();
-        }
-
         while (running_.load(std::memory_order_acquire)) {
             if (!readOnce()) {
-                close();
+                closeChannel();
                 break;
             }
         }
     }
+    closeChannel();
+}
+
+void WtsTransport::stop() {
+    running_.store(false, std::memory_order_release);
 }
 
 bool WtsTransport::tryOpenChannel() {
-    std::lock_guard lock(mutex_);
+    {
+        std::lock_guard lock(mutex_);
+        if (!running_.load(std::memory_order_acquire)) {
+            return false;
+        }
 
-    if (channel_ != nullptr) {
-        return true;
+        if (channel_.valid()) {
+            state_ = WorkerState::Connected;
+            return true;
+        }
+        state_ = WorkerState::Opening;
     }
 
-    channel_ = WTSVirtualChannelOpenEx(
-        WTS_CURRENT_SESSION,
-        const_cast<char*>(channel_name_.c_str()),
-        OPEN_FLAGS);
-
-    if (channel_ == nullptr) {
+    auto channel_opt = WtsChannelHandle::open(channel_name_);
+    if (!channel_opt.has_value()) {
+        std::lock_guard lock(mutex_);
+        state_ = WorkerState::Disconnected;
         return false;
     }
 
-    if (!queryFileHandleNoLock()) {
-        const DWORD error = GetLastError();
-        WTSVirtualChannelClose(channel_);
-        channel_ = nullptr;
-        SetLastError(error);
-        return false;
+    {
+        std::lock_guard lock(mutex_);
+        if (!running_.load(std::memory_order_acquire)) {
+            return false;
+        }
+
+        if (channel_.valid()) {
+            state_ = WorkerState::Connected;
+            return true;
+        }
+
+        channel_ = std::move(*channel_opt);
+        state_ = WorkerState::Connected;
     }
 
-    state_ = WorkerState::Connected;
+    if (connected_handler_) {
+        connected_handler_();
+    }
     return true;
 }
 
-bool WtsTransport::readOnce() {
-    char buffer[READ_BUFFER_SIZE];
-    ULONG bytesRead = 0;
-
-    void* channel = nullptr;
+void WtsTransport::closeChannel() {
+    bool was_connected = false;
     {
         std::lock_guard lock(mutex_);
-        channel = channel_;
+        was_connected = (state_ == WorkerState::Connected);
+        channel_.reset();
+        state_ = WorkerState::Disconnected;
     }
 
-    if (channel == nullptr) {
-        return false;
+    if (was_connected) {
+        if (disconnected_handler_) {
+            disconnected_handler_();
+        }
     }
+}
+
+bool WtsTransport::readOnce() {
+    {
+        std::lock_guard lock(mutex_);
+
+        if (!running_.load(std::memory_order_acquire)) {
+            return false;
+        }
+
+        if (!channel_.valid()) {
+            return false;
+        }
+    }
+
+    // TODO: Защитить этот блок
+    char buffer[READ_BUFFER_SIZE];
+    ULONG bytesRead = 0;
 
 #ifdef _WIN32
     OVERLAPPED ov{};
@@ -155,7 +170,7 @@ bool WtsTransport::readOnce() {
     }
 
     BOOL ok = ReadFile(
-        file_handle_,
+        channel_.file(),
         buffer,
         sizeof(buffer),
         nullptr,
@@ -169,7 +184,7 @@ bool WtsTransport::readOnce() {
             return false;
         }
 
-        if (!GetOverlappedResult(file_handle_, &ov, &bytesRead, TRUE)) {
+        if (!GetOverlappedResult(channel_.file(), &ov, &bytesRead, TRUE)) {
             const DWORD resultError = GetLastError();
             CloseHandle(ov.hEvent);
             logger_.error(std::format("GetOverlappedResult failed, GetLastError={}", resultError));
@@ -177,7 +192,7 @@ bool WtsTransport::readOnce() {
         }
     } else {
         // Операция могла завершиться синхронно даже для overlapped handle
-        if (!GetOverlappedResult(file_handle_, &ov, &bytesRead, FALSE)) {
+        if (!GetOverlappedResult(channel_.file(), &ov, &bytesRead, FALSE)) {
             const DWORD resultError = GetLastError();
             if (resultError != ERROR_IO_INCOMPLETE) {
                 CloseHandle(ov.hEvent);
@@ -217,38 +232,6 @@ bool WtsTransport::readOnce() {
     }
 
     return true;
-}
-
-bool WtsTransport::queryFileHandleNoLock() {
-    if (channel_ == nullptr) {
-        return false;
-    }
-
-    PVOID buffer = nullptr;
-    DWORD bytesReturned = 0;
-
-    if (!WTSVirtualChannelQuery(
-            channel_,
-            WTSVirtualFileHandle,
-            &buffer,
-            &bytesReturned)) {
-        return false;
-            }
-
-    file_handle_ = *reinterpret_cast<HANDLE*>(buffer);
-
-    if (buffer != nullptr) {
-        WTSFreeMemory(buffer);
-    }
-
-    return true;
-}
-
-void WtsTransport::closeChannelNoLock() {
-    if (channel_ != nullptr) {
-        WTSVirtualChannelClose(channel_);
-        channel_ = nullptr;
-    }
 }
 
 } // namespace rdp_ext::transport

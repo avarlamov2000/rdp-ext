@@ -35,13 +35,13 @@ public:
     void setDisconnectedHandler(DisconnectedHandler handler);
     void setBytesHandler(BytesHandler handler);
 
-    BOOL virtualChannelEntry(PCHANNEL_ENTRY_POINTS entryPoints);
+    BOOL virtualChannelEntry(PCHANNEL_ENTRY_POINTS entry_points);
 #ifndef _WIN32
     BOOL virtualChannelEntryEx(PCHANNEL_ENTRY_POINTS_FREERDP_EX entryPoints, PVOID initHandle);
 #endif
 
-    void onInitEvent(LPVOID userParam, LPVOID initHandle, UINT event, LPVOID data, UINT dataLength);
-    void onOpenEvent(DWORD openHandle, UINT event, LPVOID data, UINT32 dataLength, UINT32 totalLength, UINT32 dataFlags);
+    void onInitEvent(LPVOID user_param, LPVOID init_handle, UINT event, LPVOID data, UINT data_length);
+    void onOpenEvent(DWORD open_handle, UINT event, LPVOID data, UINT32 data_length, UINT32 total_length, UINT32 data_flags);
 
 #ifndef _WIN32
     void onInitEventEx(LPVOID userParam, LPVOID initHandle, UINT event, LPVOID data, UINT dataLength);
@@ -49,8 +49,13 @@ public:
 #endif
 
 private:
-    static VOID VCAPITYPE InitEventThunk(LPVOID initHandle, UINT event, LPVOID data, UINT dataLength);
-    static VOID VCAPITYPE OpenEventThunk(DWORD openHandle, UINT event, LPVOID data, UINT32 dataLength, UINT32 totalLength, UINT32 dataFlags);
+    void registerInitHandle(LPVOID init_handle);
+    void registerOpenHandle(DWORD open_handle);
+    static MstscTransport *findByInitHandle(LPVOID init_handle);
+    static MstscTransport *findByOpenHandle(DWORD open_handle);
+
+    static VOID VCAPITYPE InitEventThunk(LPVOID init_handle, UINT event, LPVOID data, UINT data_length);
+    static VOID VCAPITYPE OpenEventThunk(DWORD open_handle, UINT event, LPVOID data, UINT32 data_length, UINT32 total_length, UINT32 data_flags);
 
 #ifndef _WIN32
     static VOID VCAPITYPE InitEventThunkEx(LPVOID userParam, LPVOID initHandle, UINT event, LPVOID data, UINT dataLength);
